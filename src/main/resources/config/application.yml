@@ -44,7 +44,7 @@ management:
           - liquibase
   endpoint:
     health:
-      show-details: when_authorized
+      show-details: when-authorized
       roles: 'ROLE_ADMIN'
       probes:
         enabled: true
@@ -54,7 +54,7 @@ management:
         readiness:
           include: readinessState,db
     jhimetrics:
-      enabled: true
+      access: UNRESTRICTED
   info:
     git:
       mode: full
@@ -226,6 +226,17 @@ jhipster:
       audience:
         - account
         - api://default
+
+camunda:
+  bpm:
+    authorization:
+      enabled: true
+    database:
+      schema-update: true
+      type: oracle
+    webapp:
+      index-redirect-enabled: true
+    history-level: full
 
 # jhipster-needle-add-application-yaml-document
 ---

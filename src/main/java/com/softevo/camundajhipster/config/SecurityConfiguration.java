@@ -4,16 +4,28 @@ import static org.springframework.security.config.Customizer.withDefaults;
 import static org.springframework.security.oauth2.core.oidc.StandardClaimNames.PREFERRED_USERNAME;
 
 import com.softevo.camundajhipster.security.*;
-import com.softevo.camundajhipster.security.SecurityUtils;
 import com.softevo.camundajhipster.security.oauth2.AudienceValidator;
 import com.softevo.camundajhipster.security.oauth2.CustomClaimConverter;
 import com.softevo.camundajhipster.web.filter.SpaWebFilter;
+
+import camundajar.impl.fastparse.internal.Logger;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+
+import java.io.IOException;
 import java.util.*;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
+
+import org.camunda.bpm.engine.rest.security.auth.ProcessEngineAuthenticationFilter;
+import org.hibernate.validator.internal.util.logging.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
@@ -22,6 +34,7 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.HeadersConfigurer.FrameOptionsConfig;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.authority.mapping.GrantedAuthoritiesMapper;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserService;
@@ -39,9 +52,12 @@ import org.springframework.security.web.authentication.www.BasicAuthenticationFi
 import org.springframework.security.web.csrf.*;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.security.web.servlet.util.matcher.MvcRequestMatcher;
+import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.handler.HandlerMappingIntrospector;
 import tech.jhipster.config.JHipsterProperties;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 
 @Configuration
 @EnableMethodSecurity(securedEnabled = true)
@@ -96,11 +112,30 @@ public class SecurityConfiguration {
                     .requestMatchers(mvc.pattern("/management/info")).permitAll()
                     .requestMatchers(mvc.pattern("/management/prometheus")).permitAll()
                     .requestMatchers(mvc.pattern("/management/**")).hasAuthority(AuthoritiesConstants.ADMIN)
+                     // para CAMUNDA:
+                    .requestMatchers(mvc.pattern("/camunda/**"), mvc.pattern("/engine-rest/**"))
+                    .hasAnyAuthority(AuthoritiesConstants.USER, AuthoritiesConstants.ADMIN)
             )
             .oauth2Login(oauth2 -> oauth2.loginPage("/").userInfoEndpoint(userInfo -> userInfo.oidcUserService(this.oidcUserService())))
             .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(authenticationConverter())))
             .oauth2Client(withDefaults());
         return http.build();
+    }
+
+    @Bean
+    public FilterRegistrationBean<ProcessEngineAuthenticationFilter> processEngineAuthenticationFilter() {
+        FilterRegistrationBean<ProcessEngineAuthenticationFilter> registration = new FilterRegistrationBean<>();
+        registration.setFilter(new ProcessEngineAuthenticationFilter());
+        registration.addUrlPatterns("/engine-rest/*");
+        registration.addUrlPatterns("/camunda/app/*");
+        registration.setName("camunda-auth");
+        registration.setOrder(Ordered.LOWEST_PRECEDENCE  - 10);
+
+        //  Aquí pones tu provider custom
+        registration.addInitParameter("authentication-provider",
+            "com.softevo.camundajhipster.config.KeycloakCamundaAuthenticationProvider");
+
+        return registration;
     }
 
     @Bean
@@ -110,17 +145,58 @@ public class SecurityConfiguration {
 
     Converter<Jwt, AbstractAuthenticationToken> authenticationConverter() {
         JwtAuthenticationConverter jwtAuthenticationConverter = new JwtAuthenticationConverter();
-        jwtAuthenticationConverter.setJwtGrantedAuthoritiesConverter(
-            new Converter<Jwt, Collection<GrantedAuthority>>() {
-                @Override
-                public Collection<GrantedAuthority> convert(Jwt jwt) {
-                    return SecurityUtils.extractAuthorityFromClaims(jwt.getClaims());
+        jwtAuthenticationConverter.setJwtGrantedAuthoritiesConverter(new Converter<Jwt, Collection<GrantedAuthority>>() {
+            @Override
+            public Collection<GrantedAuthority> convert(Jwt jwt) {
+                List<String> roles = new ArrayList<>();
+
+                // 1) claim "roles"
+                List<String> claimRoles = jwt.getClaimAsStringList("roles");
+                if (claimRoles != null) roles.addAll(claimRoles);
+
+                // 2) realm_access.roles
+                Object realmAccess = jwt.getClaim("realm_access");
+                if (realmAccess instanceof Map) {
+                    Object r = ((Map<?,?>)realmAccess).get("roles");
+                    if (r instanceof List) {
+                        ((List<?>) r).forEach(x -> roles.add(String.valueOf(x)));
+                    }
                 }
+
+                // 3) resource_access -> collect all client roles
+                Object resourceAccess = jwt.getClaim("resource_access");
+                if (resourceAccess instanceof Map) {
+                    for (Object v : ((Map<?,?>)resourceAccess).values()) {
+                        if (v instanceof Map) {
+                            Object rr = ((Map<?,?>) v).get("roles");
+                            if (rr instanceof List) {
+                                ((List<?>) rr).forEach(x -> roles.add(String.valueOf(x)));
+                            }
+                        }
+                    }
+                }
+
+                // 4) groups claim (mapear grupos a roles si deseas)
+                List<String> groups = jwt.getClaimAsStringList("groups");
+                if (groups != null) roles.addAll(groups);
+
+                if (roles.isEmpty()) return Collections.emptyList();
+
+                // Normaliza: quitar duplicados y asegurar prefijo ROLE_
+                return roles.stream()
+                    .filter(Objects::nonNull)
+                    .map(String::valueOf)
+                    .map(r -> r.startsWith("ROLE_") ? r : "ROLE_" + r)
+                    .distinct()
+                    .map(SimpleGrantedAuthority::new)
+                    .collect(Collectors.toList());
             }
-        );
+        });
         jwtAuthenticationConverter.setPrincipalClaimName(PREFERRED_USERNAME);
         return jwtAuthenticationConverter;
     }
+
+
 
     OAuth2UserService<OidcUserRequest, OidcUser> oidcUserService() {
         final OidcUserService delegate = new OidcUserService();
