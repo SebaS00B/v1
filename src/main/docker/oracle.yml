@@ -1,0 +1,11 @@
+version: '2'
+services:
+  camunda-jhipster-oracle:
+    image: container-registry.oracle.com/database/express:21.3.0-xe
+    environment:
+      DBCA_TOTAL_MEMORY: 1024
+      WEB_CONSOLE: 'true'
+      ORACLE_PWD: oracle
+    ports:
+      - '1580:8080'
+      - '1521:1521'
