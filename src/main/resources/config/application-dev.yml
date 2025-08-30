@@ -16,6 +16,9 @@
 logging:
   level:
     ROOT: DEBUG
+    com.softevo.camundajhipster.config.KeycloakCamundaAuthenticationProvider: DEBUG
+    org.camunda.bpm.engine.rest.security: DEBUG
+    org.springframework.security: DEBUG
     tech.jhipster: DEBUG
     org.hibernate.SQL: DEBUG
     com.softevo.camundajhipster: DEBUG

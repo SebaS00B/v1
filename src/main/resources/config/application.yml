@@ -226,6 +226,7 @@ jhipster:
       audience:
         - account
         - api://default
+        - web_app # Añadir tu client-id como audience válida
 
 camunda:
   bpm:
@@ -237,6 +238,15 @@ camunda:
     webapp:
       index-redirect-enabled: true
     history-level: full
+    # admin-user: # ELIMINADO - usamos solo Keycloak
+    filter:
+      create: All tasks
+    # Configuraciones adicionales para mejorar la integración
+    job-executor:
+      enabled: true
+    metrics:
+      enabled: true
+      db-reporter-activate: true
 
 # jhipster-needle-add-application-yaml-document
 ---

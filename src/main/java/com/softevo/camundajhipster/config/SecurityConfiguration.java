@@ -3,24 +3,21 @@ package com.softevo.camundajhipster.config;
 import static org.springframework.security.config.Customizer.withDefaults;
 import static org.springframework.security.oauth2.core.oidc.StandardClaimNames.PREFERRED_USERNAME;
 
+import camundajar.impl.fastparse.internal.Logger;
 import com.softevo.camundajhipster.security.*;
 import com.softevo.camundajhipster.security.oauth2.AudienceValidator;
 import com.softevo.camundajhipster.security.oauth2.CustomClaimConverter;
 import com.softevo.camundajhipster.web.filter.SpaWebFilter;
-
-import camundajar.impl.fastparse.internal.Logger;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-
 import java.io.IOException;
 import java.util.*;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
-
 import org.camunda.bpm.engine.rest.security.auth.ProcessEngineAuthenticationFilter;
 import org.hibernate.validator.internal.util.logging.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -28,7 +25,10 @@ import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.core.convert.converter.Converter;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -56,8 +56,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.handler.HandlerMappingIntrospector;
 import tech.jhipster.config.JHipsterProperties;
-import org.springframework.core.Ordered;
-import org.springframework.core.annotation.Order;
 
 @Configuration
 @EnableMethodSecurity(securedEnabled = true)
@@ -94,27 +92,53 @@ public class SecurityConfiguration {
                     )
             )
             .authorizeHttpRequests(authz ->
-                // prettier-ignore
                 authz
-                    .requestMatchers(mvc.pattern("/index.html"), mvc.pattern("/*.js"), mvc.pattern("/*.txt"), mvc.pattern("/*.json"), mvc.pattern("/*.map"), mvc.pattern("/*.css")).permitAll()
-                    .requestMatchers(mvc.pattern("/*.ico"), mvc.pattern("/*.png"), mvc.pattern("/*.svg"), mvc.pattern("/*.webapp")).permitAll()
-                    .requestMatchers(mvc.pattern("/app/**")).permitAll()
-                    .requestMatchers(mvc.pattern("/i18n/**")).permitAll()
-                    .requestMatchers(mvc.pattern("/content/**")).permitAll()
-                    .requestMatchers(mvc.pattern("/swagger-ui/**")).permitAll()
-                    .requestMatchers(mvc.pattern("/api/authenticate")).permitAll()
-                    .requestMatchers(mvc.pattern("/api/auth-info")).permitAll()
-                    .requestMatchers(mvc.pattern("/api/admin/**")).hasAuthority(AuthoritiesConstants.ADMIN)
-                    .requestMatchers(mvc.pattern("/api/**")).authenticated()
-                    .requestMatchers(mvc.pattern("/v3/api-docs/**")).hasAuthority(AuthoritiesConstants.ADMIN)
-                    .requestMatchers(mvc.pattern("/management/health")).permitAll()
-                    .requestMatchers(mvc.pattern("/management/health/**")).permitAll()
-                    .requestMatchers(mvc.pattern("/management/info")).permitAll()
-                    .requestMatchers(mvc.pattern("/management/prometheus")).permitAll()
-                    .requestMatchers(mvc.pattern("/management/**")).hasAuthority(AuthoritiesConstants.ADMIN)
-                     // para CAMUNDA:
-                    .requestMatchers(mvc.pattern("/camunda/**"), mvc.pattern("/engine-rest/**"))
-                    .hasAnyAuthority(AuthoritiesConstants.USER, AuthoritiesConstants.ADMIN)
+                    .requestMatchers(
+                        mvc.pattern("/index.html"),
+                        mvc.pattern("/*.js"),
+                        mvc.pattern("/*.txt"),
+                        mvc.pattern("/*.json"),
+                        mvc.pattern("/*.map"),
+                        mvc.pattern("/*.css")
+                    )
+                    .permitAll()
+                    .requestMatchers(mvc.pattern("/*.ico"), mvc.pattern("/*.png"), mvc.pattern("/*.svg"), mvc.pattern("/*.webapp"))
+                    .permitAll()
+                    .requestMatchers(mvc.pattern("/app/**"))
+                    .permitAll()
+                    .requestMatchers(mvc.pattern("/i18n/**"))
+                    .permitAll()
+                    .requestMatchers(mvc.pattern("/content/**"))
+                    .permitAll()
+                    .requestMatchers(mvc.pattern("/swagger-ui/**"))
+                    .permitAll()
+                    .requestMatchers(mvc.pattern("/api/authenticate"))
+                    .permitAll()
+                    .requestMatchers(mvc.pattern("/api/auth-info"))
+                    .permitAll()
+                    .requestMatchers(mvc.pattern("/api/admin/**"))
+                    .hasAuthority(AuthoritiesConstants.ADMIN)
+                    .requestMatchers(mvc.pattern("/api/**"))
+                    .authenticated()
+                    .requestMatchers(mvc.pattern("/v3/api-docs/**"))
+                    .hasAuthority(AuthoritiesConstants.ADMIN)
+                    .requestMatchers(mvc.pattern("/management/health"))
+                    .permitAll()
+                    .requestMatchers(mvc.pattern("/management/health/**"))
+                    .permitAll()
+                    .requestMatchers(mvc.pattern("/management/info"))
+                    .permitAll()
+                    .requestMatchers(mvc.pattern("/management/prometheus"))
+                    .permitAll()
+                    .requestMatchers(mvc.pattern("/management/**"))
+                    .hasAuthority(AuthoritiesConstants.ADMIN)
+                    .requestMatchers(HttpMethod.OPTIONS, "/**")
+                    .permitAll()
+                    // RUTAS DE CAMUNDA
+                    .requestMatchers("/engine-rest/**", "/camunda/**")
+                    .authenticated()
+                    .anyRequest()
+                    .permitAll()
             )
             .oauth2Login(oauth2 -> oauth2.loginPage("/").userInfoEndpoint(userInfo -> userInfo.oidcUserService(this.oidcUserService())))
             .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(authenticationConverter())))
@@ -129,11 +153,13 @@ public class SecurityConfiguration {
         registration.addUrlPatterns("/engine-rest/*");
         registration.addUrlPatterns("/camunda/app/*");
         registration.setName("camunda-auth");
-        registration.setOrder(Ordered.LOWEST_PRECEDENCE  - 10);
+        registration.setOrder(Ordered.LOWEST_PRECEDENCE - 10);
 
-        //  Aquí pones tu provider custom
-        registration.addInitParameter("authentication-provider",
-            "com.softevo.camundajhipster.config.KeycloakCamundaAuthenticationProvider");
+        // Tu provider personalizado de Keycloak
+        registration.addInitParameter(
+            "authentication-provider",
+            "com.softevo.camundajhipster.config.KeycloakCamundaAuthenticationProvider"
+        );
 
         return registration;
     }
@@ -143,84 +169,76 @@ public class SecurityConfiguration {
         return new MvcRequestMatcher.Builder(introspector);
     }
 
+    // CONVERTER MEJORADO PARA JWT
     Converter<Jwt, AbstractAuthenticationToken> authenticationConverter() {
         JwtAuthenticationConverter jwtAuthenticationConverter = new JwtAuthenticationConverter();
-        jwtAuthenticationConverter.setJwtGrantedAuthoritiesConverter(new Converter<Jwt, Collection<GrantedAuthority>>() {
-            @Override
-            public Collection<GrantedAuthority> convert(Jwt jwt) {
-                List<String> roles = new ArrayList<>();
+        jwtAuthenticationConverter.setJwtGrantedAuthoritiesConverter(jwt -> {
+            Set<String> authorities = new HashSet<>();
 
-                // 1) claim "roles"
-                List<String> claimRoles = jwt.getClaimAsStringList("roles");
-                if (claimRoles != null) roles.addAll(claimRoles);
-
-                // 2) realm_access.roles
-                Object realmAccess = jwt.getClaim("realm_access");
-                if (realmAccess instanceof Map) {
-                    Object r = ((Map<?,?>)realmAccess).get("roles");
-                    if (r instanceof List) {
-                        ((List<?>) r).forEach(x -> roles.add(String.valueOf(x)));
-                    }
-                }
-
-                // 3) resource_access -> collect all client roles
-                Object resourceAccess = jwt.getClaim("resource_access");
-                if (resourceAccess instanceof Map) {
-                    for (Object v : ((Map<?,?>)resourceAccess).values()) {
-                        if (v instanceof Map) {
-                            Object rr = ((Map<?,?>) v).get("roles");
-                            if (rr instanceof List) {
-                                ((List<?>) rr).forEach(x -> roles.add(String.valueOf(x)));
-                            }
-                        }
-                    }
-                }
-
-                // 4) groups claim (mapear grupos a roles si deseas)
-                List<String> groups = jwt.getClaimAsStringList("groups");
-                if (groups != null) roles.addAll(groups);
-
-                if (roles.isEmpty()) return Collections.emptyList();
-
-                // Normaliza: quitar duplicados y asegurar prefijo ROLE_
-                return roles.stream()
-                    .filter(Objects::nonNull)
-                    .map(String::valueOf)
-                    .map(r -> r.startsWith("ROLE_") ? r : "ROLE_" + r)
-                    .distinct()
-                    .map(SimpleGrantedAuthority::new)
-                    .collect(Collectors.toList());
+            // 1. Extraer del claim "roles" directo
+            List<String> roles = jwt.getClaimAsStringList("roles");
+            if (roles != null) {
+                authorities.addAll(roles);
             }
+
+            // 2. Extraer de "realm_access.roles"
+            Map<String, Object> realmAccess = jwt.getClaim("realm_access");
+            if (realmAccess != null && realmAccess.get("roles") instanceof List) {
+                @SuppressWarnings("unchecked")
+                List<String> realmRoles = (List<String>) realmAccess.get("roles");
+                authorities.addAll(realmRoles);
+            }
+
+            // 3. Extraer de "resource_access"
+            Map<String, Object> resourceAccess = jwt.getClaim("resource_access");
+            if (resourceAccess != null) {
+                resourceAccess
+                    .values()
+                    .stream()
+                    .filter(resource -> resource instanceof Map)
+                    .map(resource -> (Map<?, ?>) resource)
+                    .filter(resourceMap -> resourceMap.get("roles") instanceof List)
+                    .forEach(resourceMap -> {
+                        @SuppressWarnings("unchecked")
+                        List<String> resourceRoles = (List<String>) resourceMap.get("roles");
+                        authorities.addAll(resourceRoles);
+                    });
+            }
+
+            // 4. Mapear grupos como roles si es necesario
+            List<String> groups = jwt.getClaimAsStringList("groups");
+            if (groups != null) {
+                groups.stream().map(group -> "ROLE_" + group.toUpperCase()).forEach(authorities::add);
+            }
+
+            // Normalizar authorities
+            return authorities
+                .stream()
+                .filter(Objects::nonNull)
+                .map(String::valueOf)
+                .map(auth -> auth.startsWith("ROLE_") ? auth : "ROLE_" + auth.toUpperCase())
+                .distinct()
+                .map(SimpleGrantedAuthority::new)
+                .collect(Collectors.toList());
         });
+
         jwtAuthenticationConverter.setPrincipalClaimName(PREFERRED_USERNAME);
         return jwtAuthenticationConverter;
     }
 
-
-
     OAuth2UserService<OidcUserRequest, OidcUser> oidcUserService() {
         final OidcUserService delegate = new OidcUserService();
-
         return userRequest -> {
             OidcUser oidcUser = delegate.loadUser(userRequest);
             return new DefaultOidcUser(oidcUser.getAuthorities(), oidcUser.getIdToken(), oidcUser.getUserInfo(), PREFERRED_USERNAME);
         };
     }
 
-    /**
-     * Map authorities from "groups" or "roles" claim in ID Token.
-     *
-     * @return a {@link GrantedAuthoritiesMapper} that maps groups from
-     * the IdP to Spring Security Authorities.
-     */
     @Bean
     public GrantedAuthoritiesMapper userAuthoritiesMapper() {
         return authorities -> {
             Set<GrantedAuthority> mappedAuthorities = new HashSet<>();
-
             authorities.forEach(authority -> {
-                // Check for OidcUserAuthority because Spring Security 5.2 returns
-                // each scope as a GrantedAuthority, which we don't care about.
                 if (authority instanceof OidcUserAuthority) {
                     OidcUserAuthority oidcUserAuthority = (OidcUserAuthority) authority;
                     mappedAuthorities.addAll(SecurityUtils.extractAuthorityFromClaims(oidcUserAuthority.getUserInfo().getClaims()));
